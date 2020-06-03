@@ -90,7 +90,7 @@ if args.save_folder:
     now = datetime.datetime.now()
     timestamp = now.isoformat()
     save_folder = '{}/exp{}/'.format(args.save_folder, timestamp)
-    os.mkdir(save_folder)
+    os.makedirs(save_folder)
     meta_file = os.path.join(save_folder, 'metadata.pkl')
     encoder_file = os.path.join(save_folder, 'encoder.pt')
     decoder_file = os.path.join(save_folder, 'decoder.pt')
@@ -309,7 +309,6 @@ def test():
             data, relations = data.cuda(), relations.cuda()
         data, relations = Variable(data, volatile=True), Variable(
             relations, volatile=True)
-
         assert (data.size(2) - args.timesteps) >= args.timesteps
 
         data_encoder = data[:, :, :args.timesteps, :].contiguous()
