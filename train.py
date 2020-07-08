@@ -6,6 +6,7 @@ import argparse
 import pickle
 import os
 import datetime
+import code
 
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -107,8 +108,10 @@ else:
     print("WARNING: No save_folder provided!" +
           "Testing (within this script) will throw an error.")
 
-train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(
-    args.batch_size, args.suffix)
+
+# code.interact(local=locals())
+
+train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(args.batch_size, args.suffix)
 
 # Generate off-diagonal interaction graph
 off_diag = np.ones([args.num_atoms, args.num_atoms]) - np.eye(args.num_atoms)
@@ -303,18 +306,24 @@ def test():
     mse_test = []
     tot_mse = 0
     counter = 0
+    predicted_outputs = []
+    actual_outputs = []
 
     encoder.eval()
     decoder.eval()
     encoder.load_state_dict(torch.load(encoder_file))
     decoder.load_state_dict(torch.load(decoder_file))
+
+    # code.interact(local=locals())
+
     for batch_idx, (data, relations) in enumerate(test_loader):
         if args.cuda:
             data, relations = data.cuda(), relations.cuda()
         data, relations = Variable(data, volatile=True), Variable(
             relations, volatile=True)
-
         assert (data.size(2) - args.timesteps) >= args.timesteps
+
+        # with open(os.path.join(args.save_folder,"test_loader.txt"), "wb") as f: pickle.dump(data,f)
 
         data_encoder = data[:, :, :args.timesteps, :].contiguous()
         data_decoder = data[:, :, -args.timesteps:, :].contiguous()
@@ -325,8 +334,8 @@ def test():
         prob = my_softmax(logits, -1)
 
         output = decoder(data_decoder, edges, rel_rec, rel_send, 1)
-
         target = data_decoder[:, :, 1:, :]
+
         loss_nll = nll_gaussian(output, target, args.var)
         loss_kl = kl_categorical_uniform(prob, args.num_atoms, args.edge_types)
 
@@ -355,12 +364,19 @@ def test():
             output = decoder(data_plot, edges, rel_rec, rel_send, 20)
             target = data_plot[:, :, 1:, :]
 
+        # print("Predicted output size: {}".format(output.size()))
+        # print("Predicted target size: {}".format(target.size()))
+
+        predicted_outputs.append(output.data.numpy())
+        actual_outputs.append(target.data.numpy())
+
         mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
         tot_mse += mse.data.cpu().numpy()
         counter += 1
 
     mean_mse = tot_mse / counter
     mse_str = '['
+    print("Mean MSE: {}".format(mean_mse))
     for mse_step in mean_mse[:-1]:
         mse_str += " {:.12f} ,".format(mse_step)
     mse_str += " {:.12f} ".format(mean_mse[-1])
@@ -386,6 +402,11 @@ def test():
         print('MSE: {}'.format(mse_str), file=log)
         log.flush()
 
+        with open(os.path.join(args.save_folder,"predicted_outputs.txt"), "wb") as f:
+            pickle.dump(predicted_outputs,f)
+
+        with open(os.path.join(args.save_folder,"actual_outputs.txt"), "wb") as f:
+            pickle.dump(actual_outputs,f)
 
 # Train model
 t_total = time.time()
