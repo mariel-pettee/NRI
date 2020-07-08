@@ -76,6 +76,8 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 args.factor = not args.no_factor
 print(args)
 
+print("CUDA available? {}".format(torch.cuda.is_available()))
+
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
@@ -90,13 +92,15 @@ if args.save_folder:
     now = datetime.datetime.now()
     timestamp = now.isoformat()
     save_folder = '{}/exp{}/'.format(args.save_folder, timestamp)
-    os.mkdir(save_folder)
+    os.makedirs(save_folder)
     meta_file = os.path.join(save_folder, 'metadata.pkl')
     encoder_file = os.path.join(save_folder, 'encoder.pt')
     decoder_file = os.path.join(save_folder, 'decoder.pt')
 
     log_file = os.path.join(save_folder, 'log.txt')
     log = open(log_file, 'w')
+    print(args, file=log)
+    log.flush()
 
     pickle.dump({'args': args}, open(meta_file, "wb"))
 else:
