@@ -6,7 +6,7 @@ import argparse
 import pickle
 import os
 import datetime
-import code
+from tqdm import tqdm
 
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -47,8 +47,10 @@ parser.add_argument('--decoder-dropout', type=float, default=0.0,
 parser.add_argument('--save-folder', type=str, default='logs',
                     help='Where to save the trained model, leave empty to not save anything.')
 parser.add_argument('--load-folder', type=str, default='',
-                    help='Where to load the trained model if finetunning. ' +
+                    help='Where to load the trained model if finetuning. ' +
                          'Leave empty to train from scratch')
+parser.add_argument('--timestamp', type=str, default='',
+                    help='Specific training experiment to point to when testing (subfolder of save_folder).')
 parser.add_argument('--edge-types', type=int, default=2,
                     help='The number of edge types to infer.')
 parser.add_argument('--dims', type=int, default=4,
@@ -73,46 +75,30 @@ parser.add_argument('--dynamic-graph', action='store_true', default=False,
                     help='Whether test with dynamically re-computed graph.')
 
 args = parser.parse_args()
-args.cuda = not args.no_cuda and torch.cuda.is_available()
-args.factor = not args.no_factor
-print(args)
 
-print("CUDA available? {}".format(torch.cuda.is_available()))
-
-np.random.seed(args.seed)
-torch.manual_seed(args.seed)
-if args.cuda:
-    torch.cuda.manual_seed(args.seed)
-
-if args.dynamic_graph:
-    print("Testing with dynamically re-computed graph.")
-
-# Save model and meta-data. Always saves in a new sub-folder.
+# Load files from the save folder:
 if args.save_folder:
-    exp_counter = 0
-    now = datetime.datetime.now()
-    timestamp = now.isoformat()
-    save_folder = '{}/exp{}/'.format(args.save_folder, timestamp)
-    os.makedirs(save_folder)
+    save_folder = '{}/{}/'.format(args.save_folder, args.timestamp)
     meta_file = os.path.join(save_folder, 'metadata.pkl')
     encoder_file = os.path.join(save_folder, 'encoder.pt')
     decoder_file = os.path.join(save_folder, 'decoder.pt')
-
-    log_file = os.path.join(save_folder, 'log.txt')
+    log_file = os.path.join(save_folder, 'test_log.txt')
     log = open(log_file, 'w')
-    print(args, file=log)
-    log.flush()
-
-    pickle.dump({'args': args}, open(meta_file, "wb"))
 else:
     print("WARNING: No save_folder provided!" +
           "Testing (within this script) will throw an error.")
 
+args.cuda = not args.no_cuda and torch.cuda.is_available()
+args.factor = not args.no_factor
+print(args, file=log)
+print("CUDA available? {}".format(torch.cuda.is_available()), file=log)
 
-# code.interact(local=locals())
+if args.dynamic_graph:
+    print("Testing with dynamically re-computed graph.", file=log)
+
+log.flush()
 
 train_loader, valid_loader, test_loader, loc_max, loc_min, vel_max, vel_min = load_data(args.batch_size, args.suffix)
-
 # Generate off-diagonal interaction graph
 off_diag = np.ones([args.num_atoms, args.num_atoms]) - np.eye(args.num_atoms)
 
@@ -146,14 +132,6 @@ elif args.decoder == 'rnn':
                          skip_first=args.skip_first)
 elif args.decoder == 'sim':
     decoder = SimulationDecoder(loc_max, loc_min, vel_max, vel_min, args.suffix)
-
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
-            
-print(encoder)
-print(decoder)
-print("Total encoder trainable parameters: {:,}".format(count_parameters(encoder)))
-print("Total decoder trainable parameters: {:,}".format(count_parameters(decoder)))
 
 if args.load_folder:
     encoder_file = os.path.join(args.load_folder, 'encoder.pt')
@@ -196,132 +174,112 @@ rel_rec = Variable(rel_rec)
 rel_send = Variable(rel_send)
 
 
-def train(epoch, best_val_loss):
-    t = time.time()
-    nll_train = []
-    acc_train = []
-    kl_train = []
-    mse_train = []
-
-    encoder.train()
-    decoder.train()
-    scheduler.step()
-    for batch_idx, (data, relations) in enumerate(train_loader):
-
-        if args.cuda:
-            data, relations = data.cuda(), relations.cuda()
-        data, relations = Variable(data), Variable(relations)
-
-        optimizer.zero_grad()
-
-        logits = encoder(data, rel_rec, rel_send)
-        edges = gumbel_softmax(logits, tau=args.temp, hard=args.hard)
-        prob = my_softmax(logits, -1)
-
-        if args.decoder == 'rnn':
-            output = decoder(data, edges, rel_rec, rel_send, 100,
-                             burn_in=True,
-                             burn_in_steps=args.timesteps - args.prediction_steps)
-        else:
-            output = decoder(data, edges, rel_rec, rel_send,
-                             args.prediction_steps)
-
-        target = data[:, :, 1:, :]
-
-        loss_nll = nll_gaussian(output, target, args.var)
-
-        if args.prior:
-            loss_kl = kl_categorical(prob, log_prior, args.num_atoms)
-        else:
-            loss_kl = kl_categorical_uniform(prob, args.num_atoms,
-                                             args.edge_types)
-
-        loss = loss_nll + loss_kl
-
-        acc = edge_accuracy(logits, relations)
-        acc_train.append(acc)
-
-        loss.backward()
-        optimizer.step()
-
-        mse_train.append(F.mse_loss(output, target).data[0])
-        nll_train.append(loss_nll.data[0])
-        kl_train.append(loss_kl.data[0])
-
-    nll_val = []
-    acc_val = []
-    kl_val = []
-    mse_val = []
+def test():
+    acc_test = []
+    nll_test = []
+    kl_test = []
+    mse_test = []
+    tot_mse = 0
+    counter = 0
+    predicted_outputs = []
+    actual_outputs = []
+    edges_list = []
 
     encoder.eval()
     decoder.eval()
-    for batch_idx, (data, relations) in enumerate(valid_loader):
+    encoder.load_state_dict(torch.load(encoder_file))
+    decoder.load_state_dict(torch.load(decoder_file))
+
+    for batch_idx, (data, relations) in tqdm(enumerate(test_loader)):
         if args.cuda:
             data, relations = data.cuda(), relations.cuda()
         data, relations = Variable(data, volatile=True), Variable(
             relations, volatile=True)
 
-        logits = encoder(data, rel_rec, rel_send)
+        assert (data.size(2) - args.timesteps) >= args.timesteps
+
+        data_encoder = data[:, :, :args.timesteps, :].contiguous()
+        data_decoder = data[:, :, -args.timesteps:, :].contiguous()
+
+        logits = encoder(data_encoder, rel_rec, rel_send)
         edges = gumbel_softmax(logits, tau=args.temp, hard=True)
         prob = my_softmax(logits, -1)
-
-        # validation output uses teacher forcing
-        output = decoder(data, edges, rel_rec, rel_send, 1)
-
-        target = data[:, :, 1:, :]
+        output = decoder(data_decoder, edges, rel_rec, rel_send, 1)
+        target = data_decoder[:, :, 1:, :]
+                
         loss_nll = nll_gaussian(output, target, args.var)
         loss_kl = kl_categorical_uniform(prob, args.num_atoms, args.edge_types)
 
         acc = edge_accuracy(logits, relations)
-        acc_val.append(acc)
+        acc_test.append(acc)
 
-        mse_val.append(F.mse_loss(output, target).data[0])
-        nll_val.append(loss_nll.data[0])
-        kl_val.append(loss_kl.data[0])
+        mse_test.append(F.mse_loss(output, target).data[0])
+        nll_test.append(loss_nll.data[0])
+        kl_test.append(loss_kl.data[0])
 
-    print('Epoch: {:04d}'.format(epoch),
-          'nll_train: {:.10f}'.format(np.mean(nll_train)),
-          'kl_train: {:.10f}'.format(np.mean(kl_train)),
-          'mse_train: {:.10f}'.format(np.mean(mse_train)),
-          'acc_train: {:.10f}'.format(np.mean(acc_train)),
-          'nll_val: {:.10f}'.format(np.mean(nll_val)),
-          'kl_val: {:.10f}'.format(np.mean(kl_val)),
-          'mse_val: {:.10f}'.format(np.mean(mse_val)),
-          'acc_val: {:.10f}'.format(np.mean(acc_val)),
-          'time: {:.4f}s'.format(time.time() - t), file=log)
-    log.flush()
-    if args.save_folder and np.mean(nll_val) < best_val_loss:
-        torch.save(encoder.state_dict(), encoder_file)
-        torch.save(decoder.state_dict(), decoder_file)
-        print('Best model so far, saving...', file=log)
-        print('Epoch: {:04d}'.format(epoch),
-              'nll_train: {:.10f}'.format(np.mean(nll_train)),
-              'kl_train: {:.10f}'.format(np.mean(kl_train)),
-              'mse_train: {:.10f}'.format(np.mean(mse_train)),
-              'acc_train: {:.10f}'.format(np.mean(acc_train)),
-              'nll_val: {:.10f}'.format(np.mean(nll_val)),
-              'kl_val: {:.10f}'.format(np.mean(kl_val)),
-              'mse_val: {:.10f}'.format(np.mean(mse_val)),
-              'acc_val: {:.10f}'.format(np.mean(acc_val)),
-              'time: {:.4f}s'.format(time.time() - t), file=log)
+        # For plotting purposes
+        if args.decoder == 'rnn':
+            if args.dynamic_graph:
+                output = decoder(data, edges, rel_rec, rel_send, 100,
+                                 burn_in=True, burn_in_steps=args.timesteps,
+                                 dynamic_graph=True, encoder=encoder,
+                                 temp=args.temp)
+            else:
+                output = decoder(data, edges, rel_rec, rel_send, 100,
+                                 burn_in=True, burn_in_steps=args.timesteps)
+
+            # output = output[:, :, args.timesteps:2*args.timesteps, :]
+            target = data[:, :, 1:, :]
+        else:
+            data_plot = data[:, :, args.timesteps:args.timesteps + 21, :].contiguous()
+            output = decoder(data_plot, edges, rel_rec, rel_send, 20)
+            target = data_plot[:, :, 1:, :]
+
+        predicted_outputs.append(output.data.numpy())
+        actual_outputs.append(target.data.numpy())
+        edges_list.append(edges.data.numpy())
+
+        mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
+        tot_mse += mse.data.cpu().numpy()
+        counter += 1
+
+    mean_mse = tot_mse / counter
+    mse_str = '['
+    for mse_step in mean_mse[:-1]:
+        mse_str += " {:.12f} ,".format(mse_step)
+    mse_str += " {:.12f} ".format(mean_mse[-1])
+    mse_str += ']'
+
+    print('--------------------------------')
+    print('--------Testing-----------------')
+    print('--------------------------------')
+    print('nll_test: {:.10f}'.format(np.mean(nll_test)),
+          'kl_test: {:.10f}'.format(np.mean(kl_test)),
+          'mse_test: {:.10f}'.format(np.mean(mse_test)),
+          'acc_test: {:.10f}'.format(np.mean(acc_test)))
+    print('MSE: {}'.format(mse_str))
+    if args.save_folder:
+        print('--------------------------------', file=log)
+        print('--------Testing-----------------', file=log)
+        print('--------------------------------', file=log)
+        print('nll_test: {:.10f}'.format(np.mean(nll_test)),
+              'kl_test: {:.10f}'.format(np.mean(kl_test)),
+              'mse_test: {:.10f}'.format(np.mean(mse_test)),
+              'acc_test: {:.10f}'.format(np.mean(acc_test)),
+              file=log)
+        print('MSE: {}'.format(mse_str), file=log)
         log.flush()
-    return np.mean(nll_val)
 
-### Train model
-t_total = time.time()
-best_val_loss = np.inf
-best_epoch = 0
-for epoch in range(args.epochs):
-    val_loss = train(epoch, best_val_loss)
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        best_epoch = epoch
-print("Optimization Finished!")
-print("Best Epoch: {:04d}".format(best_epoch))
-if args.save_folder:
-    print("Best Epoch: {:04d}".format(best_epoch), file=log)
-    log.flush()
+        with open(os.path.join(save_folder,"predicted_outputs.txt"), "wb") as f:
+            pickle.dump(predicted_outputs,f)
 
+        with open(os.path.join(save_folder,"actual_outputs.txt"), "wb") as f:
+            pickle.dump(actual_outputs,f)
+
+        with open(os.path.join(save_folder,"edges.txt"), "wb") as f:
+            pickle.dump(edges_list,f)
+
+test()
 if log is not None:
     print(save_folder)
     log.close()
