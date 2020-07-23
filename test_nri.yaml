@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  generateName: nri-test-
+  generateName: nri-test-hard-
   labels:
     type: interactive
     research-group: rl-team
@@ -20,9 +20,9 @@ spec:
     "--decoder=rnn",
     "--dynamic-graph",
     "--skip-first",
-#     "--hard",
-    "--save-folder=/workspace/NRI/logs/dance_53joints_rnndecoder",
-    "--timestamp=exp2020-07-09T18:07:56.912779",
+    "--hard",
+    "--save-folder=/workspace/NRI/logs/dance_53joints_rnndecoder_pred10_hard",
+    "--timestamp=exp2020-07-22T15:30:13.823767",
   ]
     # command: ["sleep", "infinity"]
     image: amr-registry.caas.intel.com/aipg/mpettee-nri

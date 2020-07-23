@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  generateName: nri-train-53joints-rnndecoder-pred10-hard-
+  generateName: nri-train-sparse-
   labels:
     type: interactive
     research-group: rl-team
@@ -11,7 +11,7 @@ spec:
   containers:
   - name: nri-train
     command: ["python", "-u", "train.py", 
-    "--epochs=100",
+    "--epochs=25",
     "--suffix=_dance", 
     "--num-atoms=53",
     "--prediction-steps=10",
@@ -21,8 +21,9 @@ spec:
     "--decoder=rnn",
     "--dynamic-graph",
     "--skip-first",
-    "--hard",
-    "--save-folder=/workspace/NRI/logs/dance_53joints_rnndecoder_pred10_hard",
+    "--prior", # sparsity prior
+#     "--hard",
+    "--save-folder=/workspace/NRI/logs/dance_53joints_rnndecoder_sparse",
   ]
     # command: ["sleep", "infinity"]
     image: amr-registry.caas.intel.com/aipg/mpettee-nri
