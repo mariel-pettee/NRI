@@ -173,8 +173,13 @@ triu_indices = get_triu_offdiag_indices(args.num_atoms)
 tril_indices = get_tril_offdiag_indices(args.num_atoms)
 
 if args.prior:
-    prior = np.array([0.91, 0.03, 0.03, 0.03])  # TODO: hard coded for now
-    print("Using prior")
+    prior_array = []
+    prior_array.append(0.9)
+    for k in range(1,args.edge_types):
+        prior_array.append(0.1/(args.edge_types-1))
+    prior = np.array(prior_array)
+#     prior = np.array([0.91, 0.03, 0.03, 0.03])  # TODO: hard coded for now
+    print("Using sparsity prior")
     print(prior)
     log_prior = torch.FloatTensor(np.log(prior))
     log_prior = torch.unsqueeze(log_prior, 0)

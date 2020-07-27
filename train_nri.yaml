@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  generateName: nri-train-sparse-
+  generateName: nri-train-sparse-k6-
   labels:
     type: interactive
     research-group: rl-team
@@ -11,19 +11,19 @@ spec:
   containers:
   - name: nri-train
     command: ["python", "-u", "train.py", 
-    "--epochs=25",
+    "--epochs=50",
     "--suffix=_dance", 
     "--num-atoms=53",
     "--prediction-steps=10",
     "--dims=6",
-    "--edge-types=4",
+    "--edge-types=6",
     "--encoder=mlp",
     "--decoder=rnn",
     "--dynamic-graph",
     "--skip-first",
     "--prior", # sparsity prior
 #     "--hard",
-    "--save-folder=/workspace/NRI/logs/dance_53joints_rnndecoder_sparse",
+    "--save-folder=/workspace/NRI/logs/dance_53joints_rnndecoder_sparse_k6",
   ]
     # command: ["sleep", "infinity"]
     image: amr-registry.caas.intel.com/aipg/mpettee-nri
@@ -32,7 +32,7 @@ spec:
       limits:
         nvidia.com/gpu: 0
         cpu: 1
-        memory: 300Gi
+        memory: 400Gi
     volumeMounts:
     - mountPath: "/workspace"
       name: workspace 
