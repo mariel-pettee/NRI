@@ -586,11 +586,15 @@ class RNNDecoder(nn.Module):
         i = F.sigmoid(self.input_i(inputs) + self.hidden_i(agg_msgs))
         n = F.tanh(self.input_n(inputs) + r * self.hidden_h(agg_msgs))
         hidden = (1 - i) * n + i * hidden
-
+        print("hidden mean:",torch.mean(hidden).item()) 
+        
         # Output MLP
         pred = F.dropout(F.relu(self.out_fc1(hidden)), p=self.dropout_prob)
+        print("f_out_1 mean:",torch.mean(pred).item()) 
         pred = F.dropout(F.relu(self.out_fc2(pred)), p=self.dropout_prob)
+        print("f_out_2 mean:",torch.mean(pred).item()) 
         pred = self.out_fc3(pred)
+        print("f_out_3 mean:",torch.mean(pred).item())
 
         # Predict position/velocity difference
         pred = inputs + pred

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  generateName: nri-test-sparse-k6-argmax-
+  generateName: nri-test-sparse-k6-argmax-nodynamic-
   labels:
     type: interactive
     research-group: rl-team
@@ -18,7 +18,7 @@ spec:
     "--edge-types=6",
     "--encoder=mlp",
     "--decoder=rnn",
-    "--dynamic-graph",
+#     "--dynamic-graph",
     "--skip-first",
     "--prior",
 #     "--hard",

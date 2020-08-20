@@ -230,8 +230,6 @@ def train(epoch, best_val_loss):
 
         target = data[:, :, 1:, :]
         
-        print(output.size())
-
         loss_nll = nll_gaussian(output, target, args.var)
 
         if args.prior:

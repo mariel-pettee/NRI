@@ -82,7 +82,7 @@ if args.save_folder:
     meta_file = os.path.join(save_folder, 'metadata.pkl')
     encoder_file = os.path.join(save_folder, 'encoder.pt')
     decoder_file = os.path.join(save_folder, 'decoder.pt')
-    log_file = os.path.join(save_folder, 'test_log.txt')
+    log_file = os.path.join(save_folder, 'test_log_static.txt')
     log = open(log_file, 'w')
 else:
     print("WARNING: No save_folder provided!" +
@@ -281,16 +281,16 @@ def test():
         print('MSE: {}'.format(mse_str), file=log)
         log.flush()
 
-        with open(os.path.join(save_folder,"predicted_outputs_argmax.txt"), "wb") as f:
+        with open(os.path.join(save_folder,"predicted_outputs_static.txt"), "wb") as f:
             pickle.dump(predicted_outputs,f)
 
-        with open(os.path.join(save_folder,"actual_outputs_argmax.txt"), "wb") as f:
+        with open(os.path.join(save_folder,"actual_outputs_static.txt"), "wb") as f:
             pickle.dump(actual_outputs,f)
             
-        with open(os.path.join(save_folder,"logits.txt"), "wb") as f:
+        with open(os.path.join(save_folder,"logits_static.txt"), "wb") as f:
             pickle.dump(logits_list,f)
 
-        with open(os.path.join(save_folder,"edges_argmax.txt"), "wb") as f:
+        with open(os.path.join(save_folder,"edges_static.txt"), "wb") as f:
             pickle.dump(edges_list,f)
 
 test()
