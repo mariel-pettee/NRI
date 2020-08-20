@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  generateName: nri-test-sparse-k2
+  generateName: nri-test-sparse-k6-argmax-
   labels:
     type: interactive
     research-group: rl-team
@@ -15,18 +15,18 @@ spec:
     "--num-atoms=53",
     "--prediction-steps=10",
     "--dims=6",
-    "--edge-types=2",
+    "--edge-types=6",
     "--encoder=mlp",
     "--decoder=rnn",
     "--dynamic-graph",
     "--skip-first",
     "--prior",
 #     "--hard",
-    "--save-folder=/workspace/NRI/logs/dance_53joints_rnndecoder_sparse_k2",
-    "--timestamp=exp2020-07-23T20:16:00.729026",
+    "--save-folder=/workspace/NRI/logs/dance_53joints_rnndecoder_sparse_k6",
+    "--timestamp=exp2020-07-31T20:29:06.738927",
   ]
     # command: ["sleep", "infinity"]
-    image: amr-registry.caas.intel.com/aipg/mpettee-nri
+    image: amr-registry.caas.intel.com/aipg/mpettee-pytorch-geometric
     workingDir: /workspace/NRI/
     resources:
       limits:

@@ -126,9 +126,7 @@ class MLPEncoder(nn.Module):
         # Input shape: [num_sims, num_atoms, num_timesteps, num_dims]
         x = inputs.view(inputs.size(0), inputs.size(1), -1)
         # New shape: [num_sims, num_atoms, num_timesteps*num_dims]
-
         x = self.mlp1(x)  # 2-layer ELU net per node
-
         x = self.node2edge(x, rel_rec, rel_send)
         x = self.mlp2(x)
         x_skip = x

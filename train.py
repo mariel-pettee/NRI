@@ -178,9 +178,7 @@ if args.prior:
     for k in range(1,args.edge_types):
         prior_array.append(0.1/(args.edge_types-1))
     prior = np.array(prior_array)
-#     prior = np.array([0.91, 0.03, 0.03, 0.03])  # TODO: hard coded for now
-    print("Using sparsity prior")
-    print(prior)
+    print("Using sparsity prior: {}".format(prior))
     log_prior = torch.FloatTensor(np.log(prior))
     log_prior = torch.unsqueeze(log_prior, 0)
     log_prior = torch.unsqueeze(log_prior, 0)
@@ -199,7 +197,6 @@ if args.cuda:
 
 rel_rec = Variable(rel_rec)
 rel_send = Variable(rel_send)
-
 
 def train(epoch, best_val_loss):
     t = time.time()
@@ -232,6 +229,8 @@ def train(epoch, best_val_loss):
                              args.prediction_steps)
 
         target = data[:, :, 1:, :]
+        
+        print(output.size())
 
         loss_nll = nll_gaussian(output, target, args.var)
 
@@ -249,9 +248,11 @@ def train(epoch, best_val_loss):
         loss.backward()
         optimizer.step()
 
-        mse_train.append(F.mse_loss(output, target).data[0])
-        nll_train.append(loss_nll.data[0])
-        kl_train.append(loss_kl.data[0])
+        mse_train.append(F.mse_loss(output, target).item())
+        nll_train.append(loss_nll.item())
+        kl_train.append(loss_kl.item())
+        
+#         if batch_idx > 0: break ### TEMPORARY
 
     nll_val = []
     acc_val = []
@@ -280,10 +281,10 @@ def train(epoch, best_val_loss):
         acc = edge_accuracy(logits, relations)
         acc_val.append(acc)
 
-        mse_val.append(F.mse_loss(output, target).data[0])
-        nll_val.append(loss_nll.data[0])
-        kl_val.append(loss_kl.data[0])
-
+        mse_val.append(F.mse_loss(output, target).item())
+        nll_val.append(loss_nll.item())
+        kl_val.append(loss_kl.item())
+                
     print('Epoch: {:04d}'.format(epoch),
           'nll_train: {:.10f}'.format(np.mean(nll_train)),
           'kl_train: {:.10f}'.format(np.mean(kl_train)),

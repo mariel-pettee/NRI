@@ -157,7 +157,6 @@ if args.prior:
     for k in range(1,args.edge_types):
         prior_array.append(0.1/(args.edge_types-1))
     prior = np.array(prior_array)
-#     prior = np.array([0.91, 0.03, 0.03, 0.03])  # TODO: hard coded for now
     print("Using sparsity prior")
     print(prior)
     log_prior = torch.FloatTensor(np.log(prior))
@@ -189,6 +188,7 @@ def test():
     counter = 0
     predicted_outputs = []
     actual_outputs = []
+    logits_list = []
     edges_list = []
 
     encoder.eval()
@@ -196,58 +196,63 @@ def test():
     encoder.load_state_dict(torch.load(encoder_file))
     decoder.load_state_dict(torch.load(decoder_file))
 
-    for batch_idx, (data, relations) in tqdm(enumerate(test_loader)):
-        if args.cuda:
-            data, relations = data.cuda(), relations.cuda()
-        data, relations = Variable(data, volatile=True), Variable(
-            relations, volatile=True)
+    with torch.no_grad():
+        for batch_idx, (data, relations) in tqdm(enumerate(test_loader)):
+            if args.cuda:
+                data, relations = data.cuda(), relations.cuda()
 
-        assert (data.size(2) - args.timesteps) >= args.timesteps
+            assert (data.size(2) - args.timesteps) >= args.timesteps
 
-        data_encoder = data[:, :, :args.timesteps, :].contiguous()
-        data_decoder = data[:, :, -args.timesteps:, :].contiguous()
+            data_encoder = data[:, :, :args.timesteps, :].contiguous()
+            data_decoder = data[:, :, -args.timesteps:, :].contiguous()
 
-        logits = encoder(data_encoder, rel_rec, rel_send)
-        edges = gumbel_softmax(logits, tau=args.temp, hard=True)
-        prob = my_softmax(logits, -1)
-        output = decoder(data_decoder, edges, rel_rec, rel_send, 1)
-        target = data_decoder[:, :, 1:, :]
-                
-        loss_nll = nll_gaussian(output, target, args.var)
-        loss_kl = kl_categorical_uniform(prob, args.num_atoms, args.edge_types)
+            logits = encoder(data_encoder, rel_rec, rel_send)
+    #         edges = gumbel_softmax(logits, tau=args.temp, hard=True)
+            edges = torch.nn.functional.one_hot(torch.argmax(logits, axis=-1))  # temporary test -- take out the sampling & use argmax instead
+            prob = my_softmax(logits, -1)
+            output = decoder(data_decoder, edges, rel_rec, rel_send, 1)
+            target = data_decoder[:, :, 1:, :]
 
-        acc = edge_accuracy(logits, relations)
-        acc_test.append(acc)
+            loss_nll = nll_gaussian(output, target, args.var)
+            loss_kl = kl_categorical_uniform(prob, args.num_atoms, args.edge_types)
 
-        mse_test.append(F.mse_loss(output, target).data[0])
-        nll_test.append(loss_nll.data[0])
-        kl_test.append(loss_kl.data[0])
+            acc = edge_accuracy(logits, relations)
+            acc_test.append(acc)
 
-        # For plotting purposes
-        if args.decoder == 'rnn':
-            if args.dynamic_graph:
-                output = decoder(data, edges, rel_rec, rel_send, 100,
-                                 burn_in=True, burn_in_steps=args.timesteps,
-                                 dynamic_graph=True, encoder=encoder,
-                                 temp=args.temp)
+    #         mse_test.append(F.mse_loss(output, target).data[0]) # use with Pytorch 0.2
+    #         nll_test.append(loss_nll.data[0])
+    #         kl_test.append(loss_kl.data[0])
+
+            mse_test.append(F.mse_loss(output, target).data.item()) # use with new Pytorch
+            nll_test.append(loss_nll.data.item())
+            kl_test.append(loss_kl.data.item())
+            
+            # For plotting purposes
+            if args.decoder == 'rnn':
+                if args.dynamic_graph:
+                    output = decoder(data, edges, rel_rec, rel_send, 100,
+                                     burn_in=True, burn_in_steps=args.timesteps,
+                                     dynamic_graph=True, encoder=encoder,
+                                     temp=args.temp)
+                else:
+                    output = decoder(data, edges, rel_rec, rel_send, 100,
+                                     burn_in=True, burn_in_steps=args.timesteps)
+
+                # output = output[:, :, args.timesteps:2*args.timesteps, :]
+                target = data[:, :, 1:, :]
             else:
-                output = decoder(data, edges, rel_rec, rel_send, 100,
-                                 burn_in=True, burn_in_steps=args.timesteps)
+                data_plot = data[:, :, args.timesteps:args.timesteps + 21, :].contiguous()
+                output = decoder(data_plot, edges, rel_rec, rel_send, 20)
+                target = data_plot[:, :, 1:, :]
 
-            # output = output[:, :, args.timesteps:2*args.timesteps, :]
-            target = data[:, :, 1:, :]
-        else:
-            data_plot = data[:, :, args.timesteps:args.timesteps + 21, :].contiguous()
-            output = decoder(data_plot, edges, rel_rec, rel_send, 20)
-            target = data_plot[:, :, 1:, :]
+            predicted_outputs.append(output.data.numpy())
+            actual_outputs.append(target.data.numpy())
+            logits_list.append(logits.data.numpy())
+            edges_list.append(edges.data.numpy())
 
-        predicted_outputs.append(output.data.numpy())
-        actual_outputs.append(target.data.numpy())
-        edges_list.append(edges.data.numpy())
-
-        mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
-        tot_mse += mse.data.cpu().numpy()
-        counter += 1
+            mse = ((target - output) ** 2).mean(dim=0).mean(dim=0).mean(dim=-1)
+            tot_mse += mse.data.cpu().numpy()
+            counter += 1
 
     mean_mse = tot_mse / counter
     mse_str = '['
@@ -276,13 +281,16 @@ def test():
         print('MSE: {}'.format(mse_str), file=log)
         log.flush()
 
-        with open(os.path.join(save_folder,"predicted_outputs.txt"), "wb") as f:
+        with open(os.path.join(save_folder,"predicted_outputs_argmax.txt"), "wb") as f:
             pickle.dump(predicted_outputs,f)
 
-        with open(os.path.join(save_folder,"actual_outputs.txt"), "wb") as f:
+        with open(os.path.join(save_folder,"actual_outputs_argmax.txt"), "wb") as f:
             pickle.dump(actual_outputs,f)
+            
+        with open(os.path.join(save_folder,"logits.txt"), "wb") as f:
+            pickle.dump(logits_list,f)
 
-        with open(os.path.join(save_folder,"edges.txt"), "wb") as f:
+        with open(os.path.join(save_folder,"edges_argmax.txt"), "wb") as f:
             pickle.dump(edges_list,f)
 
 test()

@@ -32,7 +32,7 @@ spec:
       limits:
         nvidia.com/gpu: 0
         cpu: 1
-        memory: 400Gi
+        memory: 350Gi
     volumeMounts:
     - mountPath: "/workspace"
       name: workspace 
